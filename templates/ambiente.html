@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Ambiente {{ ambiente.nome }}</title>
+    <style>
+        body { font-family: Arial; margin: 40px; }
+        textarea { width: 100%; height: 60px; }
+        button, a { padding: 6px 10px; margin: 5px; text-decoration: none; border-radius: 4px; border: none; cursor: pointer; }
+        .back { background: #ccc; color: black; }
+        .ok { background: #007bff; color: white; }
+        .end { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <h1>Ambiente {{ ambiente.nome }}</h1>
+    <p><strong>Status:</strong> {{ ambiente.status }}</p>
+
+    <form method="POST" action="/executar/{{ ambiente.nome }}">
+        <textarea name="comando" placeholder="Digite o comando a ser executado"></textarea><br>
+        <button class="ok" type="submit">Executar</button>
+    </form>
+
+    <a class="ok" href="/output/{{ ambiente.nome }}">Ver saída</a>
+
+    <form method="POST" action="/encerrar/{{ ambiente.nome }}">
+        <button class="end" type="submit">Encerrar</button>
+    </form>
+
+    <a class="back" href="/">Voltar</a>
+</body>
+</html>

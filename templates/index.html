@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Gerenciador de Ambientes</title>
+    <style>
+        body { font-family: Arial; margin: 40px; background: #f5f5f5; }
+        h1 { color: #333; }
+        form, table { background: white; padding: 20px; border-radius: 8px; }
+        input, select { margin: 5px; padding: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border-bottom: 1px solid #ddd; padding: 10px; text-align: center; }
+        tr:hover { background: #f0f0f0; }
+        a, button { text-decoration: none; padding: 6px 10px; border-radius: 4px; border: none; cursor: pointer; }
+        .view { background: #007bff; color: white; }
+        .del { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🌐 Gerenciador de Ambientes</h1>
+
+    <form method="POST" action="/criar">
+        <h3>Criar novo ambiente</h3>
+        <input type="text" name="nome" placeholder="Nome do ambiente">
+        <input type="number" name="cpu" placeholder="CPUs" min="1" value="1">
+        <input type="text" name="memoria" placeholder="Memória (ex: 512M)" value="512M">
+        <button type="submit">Criar</button>
+    </form>
+
+    <h3>Ambientes existentes</h3>
+    <table>
+        <tr><th>Nome</th><th>CPU</th><th>Memória</th><th>Status</th><th>Ações</th></tr>
+        {% for amb in ambientes %}
+        <tr>
+            <td>{{ amb.nome }}</td>
+            <td>{{ amb.cpu }}</td>
+            <td>{{ amb.memoria }}</td>
+            <td>{{ amb.status }}</td>
+            <td>
+                <a class="view" href="/ambiente/{{ amb.nome }}">Ver</a>
+                <form style="display:inline" method="POST" action="/remover/{{ amb.nome }}">
+                    <button class="del" type="submit">Remover</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

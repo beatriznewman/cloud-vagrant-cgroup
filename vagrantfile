@@ -1,0 +1,137 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/ubuntu-22.04"
+  config.vm.hostname = "projeto2"
+
+  # Rede e portas
+  config.vm.network "forwarded_port", guest: 80, host: 8081  # Apache
+  config.vm.network "forwarded_port", guest: 5000, host: 5000 # Flask (debug)
+  config.vm.network "private_network", ip: "192.168.56.10"
+
+  # Pasta sincronizada
+  config.vm.synced_folder ".", "/vagrant"
+
+  # Configuração de recursos
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "projeto2"
+    vb.gui = false
+    vb.memory = "4096"   # 4 GB de RAM
+    vb.cpus = 2
+  end
+
+  # Provisionamento
+  config.vm.provision "shell", inline: <<-SHELL
+    echo "=============================="
+    echo "Atualizando pacotes..."
+    echo "=============================="
+    sudo apt-get update -y
+    sudo apt-get upgrade -y
+
+    echo "=============================="
+    echo "Instalando dependências..."
+    echo "=============================="
+    sudo apt-get install -y python3 python3-pip \
+                            apache2 libapache2-mod-wsgi-py3 \
+                            mysql-server mysql-client \
+                            curl git net-tools
+
+    echo "=============================="
+    echo "Configurando MySQL..."
+    echo "=============================="
+    sudo systemctl enable mysql
+    sudo systemctl start mysql
+    sudo mysql -e "CREATE DATABASE IF NOT EXISTS projeto2_db;"
+    sudo mysql -e "CREATE USER IF NOT EXISTS 'projeto2_user'@'localhost' IDENTIFIED BY '1234';"
+    sudo mysql -e "GRANT ALL PRIVILEGES ON projeto2_db.* TO 'projeto2_user'@'localhost';"
+    sudo mysql -e "FLUSH PRIVILEGES;"
+
+    echo "=============================="
+    echo "Instalando pacotes Python..."
+    echo "=============================="
+    # Instalar globalmente para o Apache ter acesso
+    sudo pip3 install flask mysql-connector-python psutil
+
+    echo "=============================="
+    echo "Configurando Apache + Flask..."
+    echo "=============================="
+    FLASK_APP_DIR="/var/www/projeto2"
+
+    sudo mkdir -p $FLASK_APP_DIR
+    sudo cp -r /vagrant/* $FLASK_APP_DIR/
+    sudo chown -R www-data:www-data $FLASK_APP_DIR
+
+    # Criar diretório para arquivos temporários
+    sudo mkdir -p /tmp
+    sudo chmod 1777 /tmp
+
+    # Remover qualquer configuração antiga
+    sudo rm -f /etc/apache2/sites-enabled/projeto2.conf
+    sudo rm -f /etc/apache2/sites-available/projeto2.conf
+
+    # Configuração WSGI simples (sem virtualenv)
+    cat <<'EOF' | sudo tee /var/www/projeto2/projeto2.wsgi
+import sys
+import logging
+
+logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+sys.path.insert(0, "/var/www/projeto2")
+
+try:
+    from app import app as application
+    logging.info("Aplicação Flask carregada com sucesso!")
+except Exception as e:
+    logging.error(f"Erro ao carregar aplicação: {e}")
+    raise
+EOF
+
+    # Configuração do Apache (sem WSGIDaemonProcess)
+    cat <<'EOF' | sudo tee /etc/apache2/sites-available/projeto2.conf
+<VirtualHost *:80>
+    ServerName localhost
+    
+    WSGIScriptAlias / /var/www/projeto2/projeto2.wsgi
+    WSGIApplicationGroup %{GLOBAL}
+    
+    <Directory /var/www/projeto2>
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+    
+    ErrorLog ${APACHE_LOG_DIR}/projeto2-error.log
+    CustomLog ${APACHE_LOG_DIR}/projeto2-access.log combined
+    
+    LogLevel info
+</VirtualHost>
+EOF
+
+    # Desabilitar site padrão e habilitar o projeto2
+    sudo a2dissite 000-default.conf 2>/dev/null || true
+    sudo a2ensite projeto2
+    sudo a2enmod wsgi
+
+    # Suprimir warning do ServerName
+    echo "ServerName localhost" | sudo tee -a /etc/apache2/apache2.conf
+
+    # Testar configuração
+    echo "=============================="
+    echo "Testando configuração do Apache..."
+    echo "=============================="
+    sudo apache2ctl configtest
+
+    # Reiniciar Apache
+    sudo systemctl restart apache2
+
+    # Verificar status
+    sudo systemctl status apache2 --no-pager
+
+    echo "=============================="
+    echo "Ambiente projeto2 pronto!"
+    echo "=============================="
+    echo "Acesse: http://localhost:8081"
+    echo ""
+    echo "Para verificar logs:"
+    echo "  sudo tail -f /var/log/apache2/projeto2-error.log"
+    echo "  sudo tail -f /var/log/apache2/error.log"
+    echo "=============================="
+  SHELL
+end
