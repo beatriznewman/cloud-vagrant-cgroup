@@ -22,12 +22,23 @@
 <body>
     <h1>🌐 Gerenciador de Ambientes</h1>
 
+    <div style="margin-bottom: 20px;">
+        <form method="POST" action="/limpar_cgroups" style="display:inline;">
+            <button type="submit" style="background: #ffc107; color: black; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer;">
+                🧹 Limpar Cgroups Órfãos
+            </button>
+        </form>
+        <a href="/status_cgroups" style="background: #17a2b8; color: white; padding: 8px 15px; text-decoration: none; border-radius: 4px; margin-left: 10px;">
+            📊 Status Cgroups
+        </a>
+    </div>
+
     <form method="POST" action="/criar">
         <h3>Criar novo ambiente</h3>
         <input type="text" name="nome" placeholder="Nome do ambiente">
         <input type="number" name="cpu" placeholder="CPUs" min="1" value="1">
         <input type="text" name="memoria" placeholder="Memória (ex: 512M)" value="512M">
-        <input type="number" name="porcentagem" placeholder="Limite CPU (%)" min="1" max="100">
+        <input type="number" name="porcentagem" placeholder="Limite de CPU (%)" min="1" max="100" value="100">
         <button type="submit">Criar</button>
     </form>
 
@@ -38,6 +49,7 @@
             <th>CPU</th>
             <th>Memória</th>
             <th>Status</th>
+            <th>Limite Atual</th>
             <th>Limite CPU (%)</th>
             <th>Ações</th>
         </tr>
@@ -47,6 +59,7 @@
             <td>{{ amb.cpu }}</td>
             <td>{{ amb.memoria }}</td>
             <td>{{ amb.status }}</td>
+            <td>{{ amb.limite_atual }}</td>
             <td>
                 <form method="POST" action="/limitar_cpu/{{ amb.nome }}" style="display:inline;">
                     <input type="number" name="porcentagem" min="1" max="100" style="width:60px;" placeholder="%">

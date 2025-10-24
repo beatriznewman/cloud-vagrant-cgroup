@@ -64,6 +64,50 @@ Vagrant.configure("2") do |config|
     sudo mkdir -p /tmp
     sudo chmod 1777 /tmp
 
+    echo "=============================="
+    echo "Configurando permissões para cgroups e sudo..."
+    echo "=============================="
+    
+    # Configurar sudoers para www-data executar comandos necessários
+    cat <<'EOF' | sudo tee /etc/sudoers.d/www-data-cgroups
+# Permissões para www-data executar comandos de cgroup e namespace
+www-data ALL=(ALL) NOPASSWD: /bin/unshare
+www-data ALL=(ALL) NOPASSWD: /bin/bash
+www-data ALL=(ALL) NOPASSWD: /bin/echo
+www-data ALL=(ALL) NOPASSWD: /bin/rmdir
+www-data ALL=(ALL) NOPASSWD: /bin/kill
+www-data ALL=(ALL) NOPASSWD: /usr/bin/stress
+www-data ALL=(ALL) NOPASSWD: /usr/bin/ps
+www-data ALL=(ALL) NOPASSWD: /bin/cat
+www-data ALL=(ALL) NOPASSWD: /bin/ls
+www-data ALL=(ALL) NOPASSWD: /bin/mkdir
+www-data ALL=(ALL) NOPASSWD: /bin/rm
+EOF
+
+    # Configurar permissões para cgroups
+    sudo chmod 755 /sys/fs/cgroup
+    sudo chown root:www-data /sys/fs/cgroup
+    sudo chmod 775 /sys/fs/cgroup
+    
+    # Adicionar www-data ao grupo que tem acesso a cgroups
+    sudo usermod -a -G cgroup www-data
+    
+    # Configurar permissões para arquivos de cgroup
+    sudo chmod 666 /sys/fs/cgroup/cgroup.procs 2>/dev/null || true
+    sudo chmod 666 /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || true
+    sudo chmod 666 /sys/fs/cgroup/cpu.max 2>/dev/null || true
+    
+    # Configurar systemd para permitir acesso a cgroups
+    sudo systemctl set-property user.slice CPUAccounting=yes
+    sudo systemctl set-property system.slice CPUAccounting=yes
+    
+    # Configurar permissões para /tmp (onde os arquivos de output são criados)
+    sudo chmod 1777 /tmp
+    sudo chown root:root /tmp
+    
+    # Instalar util-linux se não estiver instalado (contém unshare)
+    sudo apt-get install -y util-linux
+
     # Remover qualquer configuração antiga
     sudo rm -f /etc/apache2/sites-enabled/projeto2.conf
     sudo rm -f /etc/apache2/sites-available/projeto2.conf
