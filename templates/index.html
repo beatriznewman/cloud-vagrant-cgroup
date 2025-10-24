@@ -14,6 +14,9 @@
         a, button { text-decoration: none; padding: 6px 10px; border-radius: 4px; border: none; cursor: pointer; }
         .view { background: #007bff; color: white; }
         .del { background: #dc3545; color: white; }
+        .limit { background: #28a745; color: white; }
+        .commands { background: #fff; padding: 20px; border-radius: 8px; margin-top: 30px; }
+        pre { background: #111; color: #0f0; padding: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -24,18 +27,32 @@
         <input type="text" name="nome" placeholder="Nome do ambiente">
         <input type="number" name="cpu" placeholder="CPUs" min="1" value="1">
         <input type="text" name="memoria" placeholder="Memória (ex: 512M)" value="512M">
+        <input type="number" name="porcentagem" placeholder="Limite CPU (%)" min="1" max="100">
         <button type="submit">Criar</button>
     </form>
 
     <h3>Ambientes existentes</h3>
     <table>
-        <tr><th>Nome</th><th>CPU</th><th>Memória</th><th>Status</th><th>Ações</th></tr>
+        <tr>
+            <th>Nome</th>
+            <th>CPU</th>
+            <th>Memória</th>
+            <th>Status</th>
+            <th>Limite CPU (%)</th>
+            <th>Ações</th>
+        </tr>
         {% for amb in ambientes %}
         <tr>
             <td>{{ amb.nome }}</td>
             <td>{{ amb.cpu }}</td>
             <td>{{ amb.memoria }}</td>
             <td>{{ amb.status }}</td>
+            <td>
+                <form method="POST" action="/limitar_cpu/{{ amb.nome }}" style="display:inline;">
+                    <input type="number" name="porcentagem" min="1" max="100" style="width:60px;" placeholder="%">
+                    <button class="limit" type="submit">Aplicar</button>
+                </form>
+            </td>
             <td>
                 <a class="view" href="/ambiente/{{ amb.nome }}">Ver</a>
                 <form style="display:inline" method="POST" action="/remover/{{ amb.nome }}">
@@ -45,5 +62,17 @@
         </tr>
         {% endfor %}
     </table>
+
+    <div class="commands">
+        <h3>⚙️ Comandos em execução</h3>
+        {% if comandos %}
+            {% for cmd in comandos %}
+                <p><strong>{{ cmd.nome }}</strong>:</p>
+                <pre>{{ cmd.conteudo }}</pre>
+            {% endfor %}
+        {% else %}
+            <p>Nenhum comando em execução no momento.</p>
+        {% endif %}
+    </div>
 </body>
 </html>

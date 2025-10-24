@@ -25,6 +25,7 @@ Vagrant.configure("2") do |config|
     echo "=============================="
     sudo apt-get update -y
     sudo apt-get upgrade -y
+    sudo apt install stress -y
 
     echo "=============================="
     echo "Instalando dependências..."

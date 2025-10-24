@@ -8,7 +8,6 @@ import mysql.connector
 
 app = Flask(__name__)
 
-# Configuração do banco MySQL
 DB_CONFIG = {
     "host": "127.0.0.1",
     "user": "projeto2_user",
@@ -17,11 +16,9 @@ DB_CONFIG = {
     "connect_timeout": 5
 }
 
-# Função auxiliar para conectar ao banco
 def conectar():
     return mysql.connector.connect(**DB_CONFIG)
 
-# Criação automática da tabela se não existir
 def criar_tabela():
     con = conectar()
     cur = con.cursor()
@@ -39,17 +36,62 @@ def criar_tabela():
     cur.close()
     con.close()
 
+# Função para criar o diretório do cgroup
+def criar_cgroup(nome):
+    cgroup_path = f"/sys/fs/cgroup/{nome}"
+    os.makedirs(cgroup_path, exist_ok=True)
+    # Ativa controladores
+    subprocess.run(["bash", "-c", f"echo '+cpu' > /sys/fs/cgroup/cgroup.subtree_control"], stderr=subprocess.DEVNULL)
+    return cgroup_path
+
+# Função para limitar CPU por porcentagem (ex: 50%)
+def limitar_cpu_porcentagem(nome, porcentagem):
+    cgroup_path = f"/sys/fs/cgroup/{nome}"
+    if not os.path.exists(cgroup_path):
+        return f"Cgroup {nome} não existe"
+
+    period = 100000  # período padrão (100ms)
+    if porcentagem == "max":
+        quota = "max"
+    else:
+        porcentagem = int(porcentagem)
+        quota = int(period * (porcentagem / 100))
+
+    with open(f"{cgroup_path}/cpu.max", "w") as f:
+        f.write(f"{quota} {period}\n")
+
+    return f"Limite de CPU definido: {porcentagem}%"
+
+def listar_comandos_ativos():
+    con = conectar()
+    cur = con.cursor(dictionary=True)
+    cur.execute("SELECT nome, output, status FROM ambientes WHERE status = 'em execução'")
+    ambientes = cur.fetchall()
+    cur.close()
+    con.close()
+
+    comandos = []
+    for amb in ambientes:
+        if os.path.exists(amb["output"]):
+            with open(amb["output"]) as f:
+                conteudo = f.read().strip()
+                if conteudo:
+                    comandos.append({"nome": amb["nome"], "conteudo": conteudo})
+    return comandos
+
+
 @app.route("/")
 def home():
     criar_tabela()
-
     con = conectar()
     cur = con.cursor(dictionary=True)
     cur.execute("SELECT * FROM ambientes")
     ambientes = cur.fetchall()
     cur.close()
     con.close()
-    return render_template("index.html", ambientes=ambientes)
+    comandos = listar_comandos_ativos()
+    return render_template("index.html", ambientes=ambientes, comandos=comandos)
+
 
 @app.route("/criar", methods=["POST"])
 def criar_ambiente():
@@ -61,6 +103,9 @@ def criar_ambiente():
     caminho = f"/tmp/{nome}"
     os.makedirs(caminho, exist_ok=True)
     output = f"{caminho}/output.txt"
+
+    # Cria o cgroup correspondente
+    criar_cgroup(nome)
 
     con = conectar()
     cur = con.cursor()
@@ -74,37 +119,9 @@ def criar_ambiente():
 
     return redirect(url_for("home"))
 
-@app.route("/ambiente/<nome>")
-def ver_ambiente(nome):
-    con = conectar()
-    cur = con.cursor(dictionary=True)
-    cur.execute("SELECT * FROM ambientes WHERE nome = %s", (nome,))
-    ambiente = cur.fetchone()
-    cur.close()
-    con.close()
-
-    if not ambiente:
-        return "Ambiente não encontrado", 404
-
-    pid = ambiente["pid"]
-    if pid and psutil.pid_exists(pid):
-        ambiente["status"] = "em execução"
-    elif pid:
-        ambiente["status"] = "terminado"
-
-    # Atualiza status no banco
-    con = conectar()
-    cur = con.cursor()
-    cur.execute("UPDATE ambientes SET status = %s WHERE nome = %s", (ambiente["status"], nome))
-    con.commit()
-    cur.close()
-    con.close()
-
-    return render_template("ambiente.html", ambiente=ambiente)
-
 @app.route("/executar/<nome>", methods=["POST"])
 def executar_programa(nome):
-    comando = request.form.get("comando")
+    comando = request.form.get("comando", "stress --cpu 1")
 
     con = conectar()
     cur = con.cursor(dictionary=True)
@@ -117,8 +134,13 @@ def executar_programa(nome):
         return "Ambiente não encontrado", 404
 
     saida = ambiente["output"]
+    cgroup_path = f"/sys/fs/cgroup/{nome}"
+
+    # comando com unshare + namespace de PID + associação ao cgroup
+    cmd = f"sudo unshare -p -f --mount-proc bash -c 'echo $$ > {cgroup_path}/cgroup.procs && {comando}'"
+
     with open(saida, "w") as f:
-        processo = subprocess.Popen(comando, shell=True, stdout=f, stderr=f, preexec_fn=os.setsid)
+        processo = subprocess.Popen(cmd, shell=True, stdout=f, stderr=f, preexec_fn=os.setsid)
         pid = processo.pid
 
     con = conectar()
@@ -130,25 +152,11 @@ def executar_programa(nome):
 
     return redirect(url_for("ver_ambiente", nome=nome))
 
-@app.route("/output/<nome>")
-def ver_output(nome):
-    con = conectar()
-    cur = con.cursor(dictionary=True)
-    cur.execute("SELECT output FROM ambientes WHERE nome = %s", (nome,))
-    amb = cur.fetchone()
-    cur.close()
-    con.close()
-
-    if not amb:
-        return "Ambiente não encontrado", 404
-
-    arquivo = amb["output"]
-    conteudo = ""
-    if os.path.exists(arquivo):
-        with open(arquivo) as f:
-            conteudo = f.read()
-
-    return render_template("output.html", nome=nome, conteudo=conteudo)
+@app.route("/limitar_cpu/<nome>", methods=["POST"])
+def limitar_cpu(nome):
+    porcentagem = request.form.get("porcentagem")
+    msg = limitar_cpu_porcentagem(nome, porcentagem)
+    return redirect(url_for("ver_ambiente", nome=nome))
 
 @app.route("/encerrar/<nome>", methods=["POST"])
 def encerrar_ambiente(nome):
@@ -170,26 +178,3 @@ def encerrar_ambiente(nome):
     con.close()
 
     return redirect(url_for("home"))
-
-@app.route("/remover/<nome>", methods=["POST"])
-def remover_ambiente(nome):
-    con = conectar()
-    cur = con.cursor(dictionary=True)
-    cur.execute("SELECT output FROM ambientes WHERE nome = %s", (nome,))
-    amb = cur.fetchone()
-    cur.close()
-
-    if amb:
-        caminho = os.path.dirname(amb["output"])
-        subprocess.call(["rm", "-rf", caminho])
-
-    cur = con.cursor()
-    cur.execute("DELETE FROM ambientes WHERE nome = %s", (nome,))
-    con.commit()
-    cur.close()
-    con.close()
-
-    return redirect(url_for("home"))
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
