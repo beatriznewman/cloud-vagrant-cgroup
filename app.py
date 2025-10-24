@@ -263,8 +263,8 @@ def executar_programa(nome):
     cgroup_path = f"/sys/fs/cgroup/{nome}"
 
     # comando com unshare conforme especificação do slide
-    # Primeiro move o processo sudo para o cgroup, depois executa o comando
-    cmd = f"sudo bash -c 'echo $$ > {cgroup_path}/cgroup.procs && exec unshare -p --mount-proc /bin/bash -c \"{comando}\"'"
+    # Cria namespace isolado primeiro, depois move o bash isolado para o cgroup
+    cmd = f"sudo unshare -pf --mount-proc /bin/bash -c 'echo $$ > {cgroup_path}/cgroup.procs && exec {comando}'"
     
     print(f"🔧 Executando comando: {cmd}")
     print(f"🔧 Comando original: {comando}")
