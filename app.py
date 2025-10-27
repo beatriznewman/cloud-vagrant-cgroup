@@ -116,6 +116,83 @@ def remover_cgroup(nome):
             # Se não conseguir remover, tenta forçar a remoção
             subprocess.run(["sudo", "rm", "-rf", cgroup_path], stderr=subprocess.DEVNULL)
 
+# --- NOVA FUNÇÃO: limitar uso de memória ---
+def limitar_memoria(nome, memoria):
+    """
+    Define o limite de memória no cgroup (arquivo memory.max).
+    Aceita formatos como '64M', '512M', '1G', ou 'max' (ilimitado).
+    """
+    cgroup_path = f"/sys/fs/cgroup/{nome}"
+    if not os.path.exists(cgroup_path):
+        return f"Cgroup {nome} não existe"
+
+    if memoria.lower() == "max":
+        valor_bytes = "max"
+    else:
+        try:
+            if memoria.lower().endswith("g"):
+                valor_bytes = int(float(memoria[:-1]) * 1024 * 1024 * 1024)
+            elif memoria.lower().endswith("m"):
+                valor_bytes = int(float(memoria[:-1]) * 1024 * 1024)
+            elif memoria.lower().endswith("k"):
+                valor_bytes = int(float(memoria[:-1]) * 1024)
+            else:
+                valor_bytes = int(memoria)  # valor cru em bytes
+        except ValueError:
+            return f"Valor de memória inválido: {memoria}"
+
+    # Usa sudo para escrever em memory.max
+    result = subprocess.run(
+        ["sudo", "bash", "-c", f"echo '{valor_bytes}' > {cgroup_path}/memory.max"],
+        stderr=subprocess.DEVNULL
+    )
+
+    if result.returncode == 0:
+        return f"Limite de memória definido: {memoria}"
+    else:
+        return f"Erro ao definir limite de memória para {nome}"
+
+def limitar_io(nome, leitura_kbps=1024, escrita_kbps=1024):
+    """
+    Define limites de I/O no cgroup.
+    leitura_kbps / escrita_kbps: valores em KB/s.
+    """
+    cgroup_path = f"/sys/fs/cgroup/{nome}"
+    if not os.path.exists(cgroup_path):
+        return f"Cgroup {nome} não existe"
+
+    # Determina o dispositivo principal (exemplo: /dev/sda)
+    try:
+        result = subprocess.run(["df", "/"], stdout=subprocess.PIPE, text=True)
+        linhas = result.stdout.strip().split("\n")
+        if len(linhas) > 1:
+            dispositivo = linhas[1].split()[0]
+            major_minor = subprocess.check_output(
+                ["bash", "-c", f"stat -c '%t:%T' {dispositivo}"], text=True
+            ).strip().replace("0x", "")
+            # Exemplo: converte major/minor hexadecimal em decimal
+            major, minor = [str(int(x, 16)) for x in major_minor.split(":")]
+        else:
+            major, minor = "8", "0"
+    except Exception:
+        major, minor = "8", "0"
+
+    leitura_bps = leitura_kbps * 1024
+    escrita_bps = escrita_kbps * 1024
+    io_rule = f"{major}:{minor} rbps={leitura_bps} wbps={escrita_bps}"
+
+    subprocess.run(["sudo", "bash", "-c", f"echo '+io' > /sys/fs/cgroup/cgroup.subtree_control"], stderr=subprocess.DEVNULL)
+    result = subprocess.run(
+        ["sudo", "bash", "-c", f"echo '{io_rule}' > {cgroup_path}/io.max"],
+        stderr=subprocess.DEVNULL
+    )
+
+    if result.returncode == 0:
+        return f"Limite de I/O definido: leitura={leitura_kbps}KB/s, escrita={escrita_kbps}KB/s"
+    else:
+        return f"Erro ao definir I/O para {nome}"
+
+
 # Função para limpar cgroups órfãos
 def limpar_cgroups_orfos():
     """Remove cgroups que não estão mais no banco de dados"""
@@ -233,6 +310,15 @@ def criar_ambiente():
     if porcentagem and porcentagem.strip():
         limitar_cpu_porcentagem(nome, porcentagem)
 
+    if memoria and memoria.strip():
+        limitar_memoria(nome, memoria)
+
+    io_leitura = request.form.get("io_leitura", 1024)
+    io_escrita = request.form.get("io_escrita", 1024)
+
+    limitar_io(nome, leitura_kbps=int(io_leitura), escrita_kbps=int(io_escrita))
+
+
     con = conectar()
     cur = con.cursor()
     cur.execute("""
@@ -266,6 +352,8 @@ def executar_programa(nome):
     # Cria namespace isolado primeiro, depois move o bash isolado para o cgroup
     cmd = f"sudo unshare -pf --mount-proc /bin/bash -c 'echo $$ > {cgroup_path}/cgroup.procs && exec {comando}'"
     
+    print(f"DEBUG comando recebido: '{comando}'")
+
     print(f"🔧 Executando comando: {cmd}")
     print(f"🔧 Comando original: {comando}")
 
@@ -449,14 +537,25 @@ def status_cgroups():
                                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
                     cpu_limit = cpu_result.stdout.strip() if cpu_result.returncode == 0 else "N/A"
                     
+                    mem_result = subprocess.run(["sudo", "cat", f"/sys/fs/cgroup/{cgroup}/memory.max"],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                    mem_limit = mem_result.stdout.strip() if mem_result.returncode == 0 else "N/A"
+
+                    io_result = subprocess.run(["sudo", "cat", f"/sys/fs/cgroup/{cgroup}/io.max"],
+                                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                    io_limit = io_result.stdout.strip() if io_result.returncode == 0 else "N/A"
+
                     status.append({
                         'nome': cgroup,
                         'processos': procs,
-                        'cpu_limit': cpu_limit
+                        'cpu_limit': cpu_limit,
+                        'mem_limit': mem_limit,
+                        'io_limit': io_limit
                     })
+
             status_lines = []
             for s in status:
-                status_lines.append(f"{s['nome']}: processos={s['processos']}, cpu_limit={s['cpu_limit']}")
+                status_lines.append(f"{s['nome']}: processos={s['processos']}, cpu_limit={s['cpu_limit']}, mem_limit={s['mem_limit']}, io_limit={s['io_limit']}")
             return f"<pre>Cgroups Status:\n{chr(10).join(status_lines)}</pre>"
         else:
             return "Erro ao listar cgroups"

@@ -35,12 +35,32 @@
 
     <form method="POST" action="/criar">
         <h3>Criar novo ambiente</h3>
+
+        <label>Nome:</label>
         <input type="text" name="nome" placeholder="Nome do ambiente">
+
+        <label>CPU:</label>
         <input type="number" name="cpu" placeholder="CPUs" min="1" value="1">
+
+        <label>Memória:</label>
         <input type="text" name="memoria" placeholder="Memória (ex: 512M)" value="512M">
+
+        <label>Limite de CPU (%):</label>
         <input type="number" name="porcentagem" placeholder="Limite de CPU (%)" min="1" max="100" value="100">
+
+        <br><br>
+        <fieldset style="border:1px solid #ddd; padding:10px; border-radius:8px;">
+            <legend><strong>Limite de I/O</strong></legend>
+            <label>Leitura (KB/s):</label>
+            <input type="number" name="io_leitura" placeholder="Leitura KB/s" min="1" value="1024" style="width:90px;">
+            <label>Escrita (KB/s):</label>
+            <input type="number" name="io_escrita" placeholder="Escrita KB/s" min="1" value="1024" style="width:90px;">
+        </fieldset>
+
+        <br>
         <button type="submit">Criar</button>
     </form>
+
 
     <h3>Ambientes existentes</h3>
     <table>
